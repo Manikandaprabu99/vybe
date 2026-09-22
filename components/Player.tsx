@@ -187,6 +187,28 @@ export default function Player() {
     setDuration(0);
   }, [track?.id]);
 
+  // Keep the YouTube IFrame actively playing when the browser backgrounds the
+  // PWA. Mobile browsers are allowed to throttle hidden pages, so we explicitly
+  // re-assert playback on visibility/page lifecycle changes. This does not try
+  // to extract or proxy YouTube media; playback remains through the official
+  // YouTube IFrame player.
+  useEffect(() => {
+    if (isLocal || !isPlaying) return;
+    const resumeYouTube = () => {
+      if (document.visibilityState === 'hidden' || document.visibilityState === 'visible') {
+        ytPlayerRef.current?.playVideo();
+      }
+    };
+    document.addEventListener('visibilitychange', resumeYouTube);
+    window.addEventListener('pagehide', resumeYouTube);
+    window.addEventListener('blur', resumeYouTube);
+    return () => {
+      document.removeEventListener('visibilitychange', resumeYouTube);
+      window.removeEventListener('pagehide', resumeYouTube);
+      window.removeEventListener('blur', resumeYouTube);
+    };
+  }, [isPlaying, isLocal, track?.id]);
+
   // YouTube: poll for position — the IFrame API doesn't push time updates.
   useEffect(() => {
     if (isLocal || !isPlaying) return;
@@ -250,8 +272,15 @@ export default function Player() {
       // Some browsers don't support the seekto action — harmless if so.
     }
     navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
+    if (duration > 0 && Number.isFinite(duration)) {
+      try {
+        navigator.mediaSession.setPositionState({ duration, playbackRate: 1, position: Math.min(currentTime, duration) });
+      } catch {
+        // Position state is optional and can throw on older mobile browsers.
+      }
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [track?.id, isPlaying, togglePlay, playPrev, handleTrackEnded]);
+  }, [track?.id, isPlaying, togglePlay, playPrev, handleTrackEnded, duration, currentTime]);
 
   if (!track) return null;
 
@@ -429,6 +458,7 @@ export default function Player() {
               }
             }}
             className="w-full h-full"
+            iframeClassName="w-full h-full"
           />
         </div>
       )}

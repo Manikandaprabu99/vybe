@@ -63,6 +63,39 @@ export function cleanArtist(raw: string): string {
     .trim();
 }
 
+// Most Tamil/Bollywood/English music uploads come from the *label's* channel,
+// not the artist's — "Think Music India", "Zee Music Company", "T-Series".
+// cleanArtist() only catches auto-generated "Artist - Topic"/VEVO channels;
+// this catches the label channels so callers know to look elsewhere for the
+// actual artist instead of just displaying the record label as if it were one.
+const LABEL_CHANNEL_RE =
+  /\b(music\s*(company|india|south)?|records?|entertainment|studios?|films?|t-?series|saregama|zee|sony|aditya\s*music|lahari|divo|muzik\s*247|sun\s*tv|goldmines|shemaroo|wave\s*music|think\s*music)\b/i;
+
+export function looksLikeLabelChannel(name: string): boolean {
+  return LABEL_CHANNEL_RE.test(name);
+}
+
+// Music uploads very commonly title themselves "Artist - Song" or
+// "Song - Artist". When the channel turns out to be a label rather than the
+// artist, this is a better guess at who's actually singing. Deliberately
+// conservative: only fires on an unambiguous two-part split, and only picks
+// a side when the other side looks like the song part (has a featuring
+// credit or a number, e.g. a movie/year) — otherwise it's a coin flip, so it
+// returns null and the caller keeps the label name rather than guessing wrong.
+export function extractArtistFromTitle(title: string): string | null {
+  const parts = title
+    .split(/\s+[-–—|]\s+/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (parts.length !== 2) return null;
+
+  const looksLikeSongPart = (s: string) => /\b(feat\.?|ft\.?)\b|\d/i.test(s);
+  const [a, b] = parts;
+  if (looksLikeSongPart(a) && !looksLikeSongPart(b)) return b;
+  if (looksLikeSongPart(b) && !looksLikeSongPart(a)) return a;
+  return null;
+}
+
 export function formatTime(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) return '0:00';
   const mins = Math.floor(seconds / 60);

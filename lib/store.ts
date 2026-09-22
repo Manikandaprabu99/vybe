@@ -31,6 +31,7 @@ interface VybeState {
   togglePlay: () => void;
   playNext: () => void;
   playPrev: () => void;
+  appendToQueue: (tracks: Track[]) => void;
   toggleShuffle: () => void;
   cycleRepeat: () => void;
 }
@@ -154,6 +155,13 @@ export const useVybeStore = create<VybeState>()(
         const { queue, currentIndex } = get();
         if (currentIndex > 0) set({ currentIndex: currentIndex - 1, isPlaying: true });
       },
+
+      // Used by the "keep playing related songs" autoplay radio once the
+      // queue runs out — appends without duplicating anything already queued.
+      appendToQueue: (tracks) =>
+        set((s) => ({
+          queue: [...s.queue, ...tracks.filter((t) => !s.queue.some((q) => q.id === t.id))],
+        })),
 
       toggleShuffle: () => {
         const { queue, originalQueue, currentIndex, shuffleEnabled } = get();

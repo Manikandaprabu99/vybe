@@ -1,5 +1,15 @@
 import { Track } from './types';
-import { cleanTitle, cleanArtist } from './format';
+import { cleanTitle, cleanArtist, looksLikeLabelChannel, extractArtistFromTitle } from './format';
+
+// Shared by both endpoints below: prefer the channel as the artist, but if
+// the channel is actually a record label's own channel, try to pull the real
+// artist out of the title instead — falling back to the label name if the
+// title doesn't give an unambiguous answer.
+function resolveArtist(rawTitle: string, cleanedTitle: string, channelTitle: string): string {
+  const artist = cleanArtist(channelTitle);
+  if (!looksLikeLabelChannel(artist)) return artist;
+  return extractArtistFromTitle(cleanedTitle) ?? extractArtistFromTitle(rawTitle) ?? artist;
+}
 
 interface YouTubeThumbnail {
   url: string;
@@ -55,20 +65,28 @@ export async function searchYouTube(
   });
   if (opts.publishedBefore) params.set('publishedBefore', opts.publishedBefore);
 
-  const res = await fetch(`${SEARCH_URL}?${params.toString()}`, { cache: 'no-store' });
+  // Cached for an hour (matches app/page.tsx's `revalidate = 3600`) instead of
+  // `no-store` — the free YouTube API quota is only 100 search requests/day,
+  // and Home alone fires up to 8 of these per page load. Without caching,
+  // that's roughly a dozen page loads to exhaust the entire day's quota,
+  // after which every search-based shelf silently renders empty.
+  const res = await fetch(`${SEARCH_URL}?${params.toString()}`, { next: { revalidate: 3600 } });
   if (!res.ok) throw new Error(`YouTube API error: ${res.status}`);
 
   const data: YouTubeSearchResponse = await res.json();
   return (data.items ?? [])
     .filter((item) => item.id?.videoId)
-    .map((item) => ({
-      id: item.id!.videoId!,
-      title: cleanTitle(item.snippet.title),
-      artist: cleanArtist(item.snippet.channelTitle),
-      thumbnail:
-        item.snippet.thumbnails?.medium?.url ?? item.snippet.thumbnails?.default?.url ?? '',
-      source: 'youtube' as const,
-    }));
+    .map((item) => {
+      const title = cleanTitle(item.snippet.title);
+      return {
+        id: item.id!.videoId!,
+        title,
+        artist: resolveArtist(item.snippet.title, title, item.snippet.channelTitle),
+        thumbnail:
+          item.snippet.thumbnails?.medium?.url ?? item.snippet.thumbnails?.default?.url ?? '',
+        source: 'youtube' as const,
+      };
+    });
 }
 
 // YouTube's actual "what's popular right now" chart, filtered to Music and
@@ -87,17 +105,20 @@ export async function getTrendingMusic(maxResults = 12): Promise<Track[]> {
     key,
   });
 
-  const res = await fetch(`${VIDEOS_URL}?${params.toString()}`, { cache: 'no-store' });
+  const res = await fetch(`${VIDEOS_URL}?${params.toString()}`, { next: { revalidate: 3600 } });
   if (!res.ok) throw new Error(`YouTube API error: ${res.status}`);
 
   const data: YouTubeVideosResponse = await res.json();
-  return (data.items ?? []).map((item) => ({
-    id: item.id,
-    title: cleanTitle(item.snippet.title),
-    artist: cleanArtist(item.snippet.channelTitle),
-    thumbnail: item.snippet.thumbnails?.medium?.url ?? item.snippet.thumbnails?.default?.url ?? '',
-    source: 'youtube' as const,
-  }));
+  return (data.items ?? []).map((item) => {
+    const title = cleanTitle(item.snippet.title);
+    return {
+      id: item.id,
+      title,
+      artist: resolveArtist(item.snippet.title, title, item.snippet.channelTitle),
+      thumbnail: item.snippet.thumbnails?.medium?.url ?? item.snippet.thumbnails?.default?.url ?? '',
+      source: 'youtube' as const,
+    };
+  });
 }
 
 // A small, easily-edited starter list for the "Popular artists" shelf — swap
@@ -107,6 +128,26 @@ export const FEATURED_ARTISTS = ['Anirudh Ravichander', 'A.R. Rahman', 'Ed Sheer
 export async function getArtistHighlight(name: string): Promise<Track | null> {
   const results = await searchYouTube(`${name} songs`, { order: 'relevance', maxResults: 1 });
   return results[0] ?? null;
+}
+
+// Spotify-style "autoplay radio": once the queue runs out, keep the music
+// going with more songs by the same artist instead of just stopping. YouTube
+// Data API v3 dropped its relatedToVideoId param years ago, so there's no
+// official "related videos" endpoint any more — same-artist search is the
+// closest legitimate substitute. Falls back to a title-based query when the
+// artist we have is actually a label channel (see resolveArtist above),
+// since "Zee Music Company songs" is a much weaker signal than an artist name.
+export async function getRelatedTracks(
+  track: Track,
+  excludeIds: Set<string>,
+  maxResults = 10
+): Promise<Track[]> {
+  const query = !looksLikeLabelChannel(track.artist)
+    ? `${track.artist} songs`
+    : `${track.title} songs`;
+
+  const results = await searchYouTube(query, { order: 'relevance', maxResults: 20 });
+  return results.filter((t) => !excludeIds.has(t.id)).slice(0, maxResults);
 }
 
 export function yearsAgoIso(years: number): string {

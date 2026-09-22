@@ -9,9 +9,9 @@ export default function TrackCard({ track, context }: { track: Track; context?: 
   return (
     <button
       onClick={() => playTrack(track, context)}
-      className="w-32 shrink-0 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-marigold/60 rounded-lg"
+      className="group w-36 shrink-0 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-marigold/60 rounded-2xl"
     >
-      <div className="w-32 h-32 rounded-lg overflow-hidden bg-dusk mb-2">
+      <div className="w-36 h-36 rounded-2xl overflow-hidden bg-dusk mb-2 shadow-lg shadow-black/20 ring-1 ring-white/5 transition-transform duration-200 ease-out group-hover:scale-[1.03] group-hover:shadow-xl group-hover:shadow-marigold/10 group-active:scale-95">
         {track.thumbnail && (
           <img src={track.thumbnail} alt="" className="w-full h-full object-cover" />
         )}

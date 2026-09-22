@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import YouTube from 'react-youtube';
 import {
   Play,
@@ -51,12 +51,55 @@ export default function Player() {
   const toggleLike = useVybeStore((s) => s.toggleLike);
   const playNext = useVybeStore((s) => s.playNext);
   const playPrev = useVybeStore((s) => s.playPrev);
+  const appendToQueue = useVybeStore((s) => s.appendToQueue);
   const toggleShuffle = useVybeStore((s) => s.toggleShuffle);
   const cycleRepeat = useVybeStore((s) => s.cycleRepeat);
 
   const track = currentIndex >= 0 ? queue[currentIndex] : null;
   const isLocal = track?.source === 'local';
   const isLiked = track ? likedTracks.some((t) => t.id === track.id) : false;
+
+  // Spotify-style autoplay radio: once the queue genuinely runs out (no
+  // repeat-all to loop it), fetch more songs by the same artist and keep
+  // playing instead of just stopping. Reads everything fresh from the store
+  // rather than closing over queue/currentIndex, so it's safe to call from
+  // event listeners that were attached once and never re-subscribed.
+  const continueRadio = useCallback(async () => {
+    const { queue: q, currentIndex: idx } = useVybeStore.getState();
+    const current = q[idx];
+    if (!current || current.source !== 'youtube') return; // no radio for "My Files"
+    try {
+      const params = new URLSearchParams({
+        id: current.id,
+        title: current.title,
+        artist: current.artist,
+        thumbnail: current.thumbnail,
+        exclude: q.map((t) => t.id).join(','),
+      });
+      const res = await fetch(`/api/related?${params.toString()}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const related = (data.results ?? []) as typeof q;
+      if (related.length === 0) return;
+      appendToQueue(related);
+      playNext();
+    } catch {
+      // Network hiccup — same as before this feature existed, playback just stops.
+    }
+  }, [appendToQueue, playNext]);
+
+  // Shared "a track just ended" handler for both playback engines: repeat-one
+  // replays itself (handled by the caller before this runs), otherwise this
+  // advances normally unless the queue is exhausted, in which case it hands
+  // off to continueRadio() instead of stopping.
+  const handleTrackEnded = useCallback(() => {
+    const { queue: q, currentIndex: idx, repeatMode: mode } = useVybeStore.getState();
+    if (idx >= q.length - 1 && mode !== 'all') {
+      continueRadio();
+    } else {
+      playNext();
+    }
+  }, [continueRadio, playNext]);
 
   // Seeks whichever engine is actually playing right now.
   const seek = (value: number) => {
@@ -169,7 +212,7 @@ export default function Player() {
         audio.currentTime = 0;
         audio.play().catch(() => {});
       } else {
-        playNext();
+        handleTrackEnded();
       }
     };
     audio.addEventListener('timeupdate', onTimeUpdate);
@@ -180,7 +223,7 @@ export default function Player() {
       audio.removeEventListener('loadedmetadata', onLoadedMetadata);
       audio.removeEventListener('ended', onEnded);
     };
-  }, [playNext]);
+  }, [handleTrackEnded]);
 
   // Lock-screen / notification metadata and controls. For local tracks this
   // is also *why* background playback actually works — see the README.
@@ -198,7 +241,7 @@ export default function Player() {
       if (isPlaying) togglePlay();
     });
     navigator.mediaSession.setActionHandler('previoustrack', playPrev);
-    navigator.mediaSession.setActionHandler('nexttrack', playNext);
+    navigator.mediaSession.setActionHandler('nexttrack', handleTrackEnded);
     try {
       navigator.mediaSession.setActionHandler('seekto', (details) => {
         if (details.seekTime != null) seek(details.seekTime);
@@ -208,7 +251,7 @@ export default function Player() {
     }
     navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [track?.id, isPlaying, togglePlay, playPrev, playNext]);
+  }, [track?.id, isPlaying, togglePlay, playPrev, handleTrackEnded]);
 
   if (!track) return null;
 
@@ -325,7 +368,7 @@ export default function Player() {
                 >
                   {isPlaying ? <Pause size={28} /> : <Play size={28} />}
                 </button>
-                <button onClick={playNext} aria-label="Next" className="focus:outline-none focus-visible:ring-2 focus-visible:ring-marigold/60 rounded-full">
+                <button onClick={handleTrackEnded} aria-label="Next" className="focus:outline-none focus-visible:ring-2 focus-visible:ring-marigold/60 rounded-full">
                   <SkipForward size={26} />
                 </button>
               </div>
@@ -358,18 +401,31 @@ export default function Player() {
         <div className="fixed top-[max(0.75rem,env(safe-area-inset-top))] right-3 z-[60] w-24 h-14 rounded-xl overflow-hidden ring-1 ring-white/10">
           <YouTube
             videoId={track.id}
-            opts={{ width: '100%', height: '100%', playerVars: { controls: 0, rel: 0, playsinline: 1 } }}
+            opts={{
+              width: '100%',
+              height: '100%',
+              playerVars: { controls: 0, rel: 0, playsinline: 1, autoplay: 1 },
+            }}
             onReady={(e) => {
               ytPlayerRef.current = e.target;
               if (isPlaying) e.target.playVideo();
             }}
             onStateChange={(e) => {
+              // 5 = YT.PlayerState.CUED. Without playerVars.autoplay, switching
+              // `videoId` only *cues* the next track instead of playing it —
+              // that's the "next song loads then just sits there paused" bug.
+              // autoplay:1 fixes the normal case; this is a safety net for
+              // whenever a browser's autoplay policy still cues instead.
+              if (e.data === 5) {
+                if (isPlaying) e.target.playVideo();
+                return;
+              }
               if (e.data !== 0) return; // 0 = YT.PlayerState.ENDED
               if (repeatModeRef.current === 'one' && ytPlayerRef.current) {
                 ytPlayerRef.current.seekTo(0, true);
                 ytPlayerRef.current.playVideo();
               } else {
-                playNext();
+                handleTrackEnded();
               }
             }}
             className="w-full h-full"

@@ -8,6 +8,7 @@ import {
 import { Track } from '@/lib/types';
 import TrackCard from '@/components/TrackCard';
 import ArtistTile from '@/components/ArtistTile';
+import HeroCard from '@/components/HeroCard';
 
 // Refreshed hourly rather than on every visit. Songs don't get released
 // every minute, and this keeps the free YouTube API quota (10,000 units/day)
@@ -66,18 +67,23 @@ export default async function HomePage() {
 
   const totalTracks =
     trending.length + newTamil.length + newEnglish.length + oldTamil.length + oldEnglish.length + artists.length;
+  const heroTrack = trending[0] ?? newTamil[0] ?? newEnglish[0] ?? null;
+  const heroContext = trending[0] ? trending : newTamil[0] ? newTamil : newEnglish;
 
   return (
     <div className="pt-6">
-      <h1 className="text-3xl font-display font-semibold tracking-tight text-paper mb-6 px-4">
-        VYBE
-      </h1>
+      <div className="mb-6 px-4">
+        <h1 className="font-display text-3xl font-semibold tracking-tight text-paper">VYBE</h1>
+        <p className="mt-1 text-sm text-haze">Tamil & English, picked fresh every hour.</p>
+      </div>
 
       {totalTracks === 0 && (
         <p className="text-sm text-magenta px-4 mb-4">
           Nothing loaded — check that YOUTUBE_API_KEY is set correctly.
         </p>
       )}
+
+      {heroTrack && <HeroCard track={heroTrack} context={heroContext} />}
 
       <Shelf title="Trending now" tracks={trending} />
       <ArtistShelf artists={artists} />
@@ -92,9 +98,11 @@ export default async function HomePage() {
 function Shelf({ title, tracks }: { title: string; tracks: Track[] }) {
   if (tracks.length === 0) return null;
   return (
-    <section className="mb-8">
-      <h2 className="text-sm font-semibold text-haze mb-3 px-4">{title}</h2>
-      <div className="flex gap-4 overflow-x-auto no-scrollbar px-4">
+    <section className="mb-9">
+      <h2 className="mb-3 px-4 font-display text-lg font-semibold tracking-tight text-paper sm:text-xl">
+        {title}
+      </h2>
+      <div className="flex gap-4 overflow-x-auto no-scrollbar px-4 pb-1">
         {tracks.map((t) => (
           <TrackCard key={t.id} track={t} context={tracks} />
         ))}
@@ -106,9 +114,11 @@ function Shelf({ title, tracks }: { title: string; tracks: Track[] }) {
 function ArtistShelf({ artists }: { artists: ArtistHighlight[] }) {
   if (artists.length === 0) return null;
   return (
-    <section className="mb-8">
-      <h2 className="text-sm font-semibold text-haze mb-3 px-4">Popular artists</h2>
-      <div className="flex gap-4 overflow-x-auto no-scrollbar px-4">
+    <section className="mb-9">
+      <h2 className="mb-3 px-4 font-display text-lg font-semibold tracking-tight text-paper sm:text-xl">
+        Popular artists
+      </h2>
+      <div className="flex gap-5 overflow-x-auto no-scrollbar px-4 pb-1">
         {artists.map((a) => (
           <ArtistTile key={a.name} name={a.name} thumbnail={a.track.thumbnail} />
         ))}

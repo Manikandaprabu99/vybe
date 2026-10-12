@@ -1,15 +1,19 @@
 import Link from 'next/link';
+import Artwork from './ui/Artwork';
 
-export default function ArtistTile({ name, thumbnail }: { name: string; thumbnail: string }) {
+export default function ArtistTile({ slug, name, thumbnail }: { slug: string; name: string; thumbnail: string }) {
   return (
     <Link
-      href={`/artist/${encodeURIComponent(name)}`}
-      className="group flex flex-col items-center gap-2 w-24 shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-marigold/60 rounded-full"
+      href={`/artist/${slug}`}
+      className="press flex w-[104px] shrink-0 snap-start flex-col items-center gap-2 rounded-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-marigold/70"
     >
-      <div className="w-24 h-24 rounded-full overflow-hidden bg-dusk shadow-lg shadow-black/20 ring-1 ring-white/10 transition-transform duration-200 ease-out group-hover:scale-105 group-active:scale-95">
-        {thumbnail && <img src={thumbnail} alt="" className="w-full h-full object-cover" />}
-      </div>
-      <span className="text-xs text-paper text-center truncate w-full">{name}</span>
+      {/* A thin accent ring, like a "story" avatar. */}
+      <span className="rounded-full bg-accent p-[2px] shadow-float">
+        <span className="block rounded-full bg-ink p-[2px]">
+          <Artwork src={thumbnail} seed={slug} className="h-[92px] w-[92px] rounded-full" iconSize={26} />
+        </span>
+      </span>
+      <span className="w-full truncate text-center text-xs font-semibold text-paper">{name}</span>
     </Link>
   );
 }

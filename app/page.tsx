@@ -1,28 +1,16 @@
-import {
-  searchYouTube,
-  getTrendingMusic,
-  getArtistHighlight,
-  yearsAgoIso,
-  FEATURED_ARTISTS,
-} from '@/lib/youtube';
+import { yt } from '@/lib/youtube/server';
+import { DAY, FEATURED_ARTISTS, yearsAgoIso } from '@/lib/youtube/core';
+import { getRadioStations } from '@/lib/radio';
 import { Track } from '@/lib/types';
-import TrackCard from '@/components/TrackCard';
-import ArtistTile from '@/components/ArtistTile';
-import HeroCard from '@/components/HeroCard';
+import HomeFeed from '@/components/HomeFeed';
 
-// Refreshed hourly rather than on every visit. Songs don't get released
-// every minute, and this keeps the free YouTube API quota (10,000 units/day)
-// sustainable no matter how many friends open the app during that hour —
-// the earlier "always live" setting paid the full query cost per visitor.
-export const revalidate = 3600;
+// Home is built ahead of time by GitHub Actions — on every push and on a
+// schedule (.github/workflows/deploy.yml) — so its YouTube calls run once
+// per build for everyone, not once per visitor. All cheap calls: the
+// trending charts and the Tamil labels' new uploads cost about 10 units; the
+// evergreen and artist searches are reused for a day from the build cache.
 
-interface ArtistHighlight {
-  name: string;
-  track: Track;
-}
-
-// Isolates one shelf's query so a single failed/empty query can't take the
-// rest of Home down with it — it just quietly renders as an empty shelf.
+// One shelf's failure (quota, network) just leaves that shelf out.
 async function safe<T>(promise: Promise<T[]>): Promise<T[]> {
   try {
     return await promise;
@@ -35,94 +23,29 @@ async function safe<T>(promise: Promise<T[]>): Promise<T[]> {
 export default async function HomePage() {
   const tenYearsAgo = yearsAgoIso(10);
 
-  const [trending, newTamil, newEnglish, oldTamil, oldEnglish, artists] = await Promise.all([
-    safe(getTrendingMusic(12)),
-    safe(searchYouTube('Tamil movie audio song', { order: 'date', maxResults: 12 })),
-    safe(searchYouTube('English official audio', { order: 'date', maxResults: 12 })),
+  const [trending, newTamil, english, oldTamil, oldEnglish, artistSongs, radio] = await Promise.all([
+    safe(yt.getTrendingMusic(12, 'IN')),
+    // New songs straight from the Tamil labels' channels; a search only as a
+    // fallback if the labels come back nearly empty.
     safe(
-      searchYouTube('Tamil melody hits', {
-        order: 'viewCount',
-        maxResults: 12,
-        publishedBefore: tenYearsAgo,
-      })
+      yt
+        .getLatestTamilSongs(16)
+        .then((songs) =>
+          songs.length >= 4
+            ? songs
+            : yt.searchYouTube('Tamil movie audio song', { order: 'date', maxResults: 12, cacheSeconds: 6 * 3600 })
+        )
     ),
-    safe(
-      searchYouTube('English classic hits', {
-        order: 'viewCount',
-        maxResults: 12,
-        publishedBefore: tenYearsAgo,
-      })
-    ),
-    safe(
-      Promise.all(
-        FEATURED_ARTISTS.map(async (name): Promise<ArtistHighlight | null> => {
-          const track = await getArtistHighlight(name);
-          return track ? { name, track } : null;
-        })
-      ).then((results): ArtistHighlight[] =>
-        results.filter((r): r is ArtistHighlight => r !== null)
-      )
-    ),
+    safe(yt.getTrendingMusic(12, 'US')),
+    safe(yt.searchYouTube('Tamil melody hits', { order: 'viewCount', maxResults: 12, publishedBefore: tenYearsAgo, cacheSeconds: DAY })),
+    safe(yt.searchYouTube('English classic hits', { order: 'viewCount', maxResults: 12, publishedBefore: tenYearsAgo, cacheSeconds: DAY })),
+    Promise.all(FEATURED_ARTISTS.map((a) => yt.getArtistSongs(a.name).catch((): Track[] => []))),
+    // Not YouTube, so it costs no quota — and it plays in the background.
+    safe(getRadioStations('tamil', 12)),
   ]);
 
-  const totalTracks =
-    trending.length + newTamil.length + newEnglish.length + oldTamil.length + oldEnglish.length + artists.length;
-  const heroTrack = trending[0] ?? newTamil[0] ?? newEnglish[0] ?? null;
-  const heroContext = trending[0] ? trending : newTamil[0] ? newTamil : newEnglish;
+  const artists = FEATURED_ARTISTS.map((a, i) => ({ ...a, thumbnail: artistSongs[i][0]?.thumbnail ?? '' }));
+  const youtubeMissing = trending.length + newTamil.length + english.length + oldTamil.length + oldEnglish.length === 0;
 
-  return (
-    <div className="pt-6">
-      <div className="mb-6 px-4">
-        <h1 className="font-display text-3xl font-semibold tracking-tight text-paper">VYBE</h1>
-        <p className="mt-1 text-sm text-haze">Tamil & English, picked fresh every hour.</p>
-      </div>
-
-      {totalTracks === 0 && (
-        <p className="text-sm text-magenta px-4 mb-4">
-          Nothing loaded — check that YOUTUBE_API_KEY is set correctly.
-        </p>
-      )}
-
-      {heroTrack && <HeroCard track={heroTrack} context={heroContext} />}
-
-      <Shelf title="Trending now" tracks={trending} />
-      <ArtistShelf artists={artists} />
-      <Shelf title="New movie songs — Tamil" tracks={newTamil} />
-      <Shelf title="New releases — English" tracks={newEnglish} />
-      <Shelf title="Tamil evergreens" tracks={oldTamil} />
-      <Shelf title="English classics" tracks={oldEnglish} />
-    </div>
-  );
-}
-
-function Shelf({ title, tracks }: { title: string; tracks: Track[] }) {
-  if (tracks.length === 0) return null;
-  return (
-    <section className="mb-9">
-      <h2 className="mb-3 px-4 font-display text-lg font-semibold tracking-tight text-paper sm:text-xl">
-        {title}
-      </h2>
-      <div className="flex gap-4 overflow-x-auto no-scrollbar px-4 pb-1">
-        {tracks.map((t) => (
-          <TrackCard key={t.id} track={t} context={tracks} />
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function ArtistShelf({ artists }: { artists: ArtistHighlight[] }) {
-  if (artists.length === 0) return null;
-  return (
-    <section className="mb-9">
-      <h2 className="mb-3 px-4 font-display text-lg font-semibold tracking-tight text-paper sm:text-xl">
-        Popular artists
-      </h2>
-      <div className="flex gap-5 overflow-x-auto no-scrollbar px-4 pb-1">
-        {artists.map((a) => (
-          <ArtistTile key={a.name} name={a.name} thumbnail={a.track.thumbnail} />
-        ))}
-      </div>
-    </section>
-  );
+  return <HomeFeed data={{ trending, newTamil, english, oldTamil, oldEnglish, artists, radio }} youtubeMissing={youtubeMissing} />;
 }

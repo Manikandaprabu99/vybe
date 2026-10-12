@@ -1,256 +1,288 @@
 # VYBE
 
-A free, install-on-your-phone music player for Tamil & English songs. No login, no subscription.
+A free, install-on-your-phone music app for Tamil & English songs. No login, no
+subscription — and it runs entirely on GitHub: the website on GitHub Pages, its
+data refreshed by GitHub Actions, and the Android app published on GitHub
+Releases. No Vercel, no Play Store, no servers to pay for.
 
-## How it actually works
+## What it does
 
-VYBE doesn't host or download any audio — there's no free, legal way to do that with
-current commercial tracks. Instead it streams songs through YouTube's own official
-embedded player, the same one youtube.com uses, so every song is licensed the way its
-label intended. Because of that, YouTube's rules for embeds apply: the player has to
-stay visible (a small live video shows top-right whenever something's playing) and
-you may occasionally see a YouTube ad, since that's part of how labels get paid for
-the upload.
-
-New releases aren't stored anywhere. The Home screen runs a live YouTube search every
-time it loads, so it stays current without anyone touching the code.
+- **Home** — Recently played, Trending in India, Popular artists, Live Tamil
+  radio, New Tamil songs (straight from the big labels' channels), English hits
+  (the US chart), Tamil evergreens, English classics. Filter chips: All / Tamil
+  / English / Radio.
+- **Search** — any song on YouTube. Tapping a result plays it and then keeps
+  going with similar songs (same movie first, then the same singer, then the
+  same label) — Spotify's "song radio".
+- **Up Next** — "…" on any song: Play next / Add to queue / Like / Add to
+  playlist / Share. The queue button on the now-playing screen shows what's
+  coming; jump, remove, clear. Queued songs stay next even when you start
+  something else or shuffle.
+- **Sleep timer** — 15/30/45/60 minutes or the end of the song.
+- **Library** — Liked Songs, playlists, and **My Files**: songs you add from
+  your phone, which play in the background and offline.
+- **Radio** — live Tamil and English-hits stations, with the screen locked.
+- Lock-screen controls, picks up where you left off, works offline, installs
+  like an app (PWA) or as a real Android app (APK).
 
 ## About background / lock-screen playback
 
-Short version: **it works now, for songs you add yourself.** Longer version
-below, because the two playback paths behave differently and it's worth
-understanding why.
+Short version: **My Files and Radio keep playing with the screen locked or the
+app in the background; YouTube songs don't.** That holds in the browser, the
+installed web app, and the Android app alike.
 
-VYBE plays songs two different ways:
+| | Background / lock screen | Where it comes from |
+|---|---|---|
+| **YouTube catalog** (Home, Search, artists) | No — pauses when you leave the app | YouTube's official embedded player |
+| **My Files** (Library) | Yes, with lock-screen controls | Audio files you add from your phone |
+| **Radio** (Radio tab, Home) | Yes, with lock-screen controls | Live stations from radio-browser.info |
 
-- **The YouTube-backed catalog** (Home, Search, artist pages) streams through
-  a YouTube video embed — that's what makes an unlimited library of current
-  Tamil/English songs possible for free. YouTube's own rules for embeds
-  require the player to stay visible and don't allow background/audio-only
-  use of their content, and mobile browsers enforce that by pausing embedded
-  video once the tab backgrounds or the screen locks. No code change here can
-  override that — it's a restriction on the platform's side, not a bug, and
-  it applies just as much to a native app built on YouTube's own SDKs as it
-  does to a website.
-- **"My Files"** (in your Library) plays through a real `<audio>` element,
-  for files you add yourself — something you own, ripped, purchased, or
-  otherwise have the rights to. Because that's genuine audio playback and
-  not a YouTube embed, it isn't subject to that restriction at all: it
-  keeps playing when the screen locks or the app is backgrounded, with real
-  lock-screen controls via the Media Session API (play/pause/skip/seek,
-  track title and artist).
+- **The YouTube catalog** streams through YouTube's own embedded player —
+  that's what makes an unlimited library of current Tamil/English songs
+  possible for free. YouTube's terms don't allow background or audio-only
+  playback of embeds (it's a YouTube Premium feature), and phones pause the
+  embed once the app backgrounds or the screen locks. Getting around it would
+  mean ripping the audio or hiding the player, which breaks YouTube's terms —
+  Google can switch off the API key the whole catalog depends on — so VYBE
+  doesn't. The video plays visibly inside the mini player, and fills the
+  artwork when you open the now-playing screen.
+- **My Files and Radio** play through VYBE's own `<audio>` element
+  (`lib/audioEngine.ts`), so none of that applies. When a song finishes with
+  the screen off, the next one starts within the same event — its file is
+  loaded ahead of time — because if the page went quiet waiting on anything,
+  the phone would suspend it and the queue would stall. In browsers the
+  lock-screen controls come from the Media Session API; in the Android app a
+  native plugin provides them and runs a foreground media service, so Android
+  doesn't kill playback a few minutes after the screen goes off.
 
-The trade-off doesn't go away, it just moves: My Files only plays what you've
-actually added as a file, not any Tamil or English song on demand. The
-unlimited catalog and background playback were never both available for free
-at the same time — that's YouTube's trade, not a limitation of this app
-specifically.
+On iPhone, use VYBE from Safari (or Add to Home Screen). iOS has had on-and-off
+WebKit bugs with background audio in Home Screen web apps — if playback stops
+when you lock the phone, play from a Safari tab instead.
 
-## What you'll need (all free)
+## Put it online (GitHub only)
 
-1. **A YouTube Data API key** — required for search and new releases to work.
-   - Go to https://console.cloud.google.com/apis/credentials
-   - Create a project → enable "YouTube Data API v3" → create an API key.
-   - Free tier is 10,000 units/day (~100 searches). Fine for personal/friend use;
-     if you outgrow it, the quota resets daily.
-2. **Node.js 18+** installed locally.
-3. **A free Vercel account** for deployment.
+Everything is automated by `.github/workflows/deploy.yml`. One-time setup:
 
-## Setup
+### 1. Two YouTube keys
+
+In the [Google Cloud console](https://console.cloud.google.com/apis/credentials):
+create a project → enable **YouTube Data API v3** → create **two API keys**.
+
+| Key | Used for | Restrict it to |
+|---|---|---|
+| **Build key** | Home, Radio and artist pages, fetched while the site is built on GitHub | API restrictions: YouTube Data API v3 |
+| **Browser key** | Search and autoplay, from people's phones | API restrictions: YouTube Data API v3 · Application restrictions: **Websites** → `https://manikandaprabu99.github.io/*` |
+
+Why two: the site is static, so Search has to call YouTube from the phone with
+a key that's visible in the app's code. Locking that one to your site's
+address means nobody can use it from anywhere else; the build key never leaves
+GitHub's secrets.
+
+### 2. Turn on GitHub Pages
+
+Repo → **Settings → Pages → Build and deployment → Source: GitHub Actions**.
+
+### 3. Add the secrets
+
+Repo → **Settings → Secrets and variables → Actions → New repository secret**:
+
+- `YOUTUBE_API_KEY` = the build key
+- `YOUTUBE_BROWSER_KEY` = the browser key
+
+### 4. Push
+
+Every push to `main` builds and publishes the site at
+**https://manikandaprabu99.github.io/vybe/** (Actions tab → *Deploy site*). It
+also rebuilds every 4 hours on its own, so Home's charts and new songs stay
+fresh. GitHub pauses scheduled workflows in repos with no commits for 60 days —
+any push, or *Enable workflow* in the Actions tab, resumes it.
+
+Open the site on your phone and **Add to Home Screen** (iPhone, Safari Share
+menu) or **Install app** (Android Chrome) — or use the APK below.
+
+## Android app (APK on GitHub Releases — no Play Store)
+
+`android/` is a small native app (Capacitor) that opens the GitHub Pages site
+full-screen and adds native lock-screen controls plus a foreground media
+service for My Files and Radio. Because it loads the live site, every change
+you push reaches the app straight away; a new APK is only needed when
+something inside `android/` changes.
+
+### The signing key — once, keep it forever
+
+Android only installs an update over an existing app if both are signed with
+the same key; lose it and everyone has to uninstall (which wipes their My
+Files). A key was generated for you in `~/vybe-signing/` (WSL home folder) —
+**back that folder up**. `SECRETS.txt` there lists four repository secrets to
+add (Settings → Secrets and variables → Actions):
+
+| Secret | Value |
+|---|---|
+| `ANDROID_KEYSTORE_BASE64` | the contents of `vybe-release.keystore.b64` |
+| `ANDROID_KEYSTORE_PASSWORD` | from `SECRETS.txt` |
+| `ANDROID_KEY_ALIAS` | `vybe` |
+| `ANDROID_KEY_PASSWORD` | from `SECRETS.txt` |
+
+(Prefer your own key? `keytool -genkeypair -v -keystore vybe-release.keystore -alias vybe -keyalg RSA -keysize 2048 -validity 10000`, then `base64 -w0 vybe-release.keystore`.)
+
+### Release it
 
 ```bash
-unzip vybe.zip && cd vybe
+git tag v1.0.0 && git push origin v1.0.0
+```
+
+`.github/workflows/android.yml` builds `vybe-v1.0.0.apk` (about 10 minutes)
+and attaches it to the repo's **Releases** page. For a test build without a
+release: Actions → *Android app* → *Run workflow*, then download the APK from
+the run's *Artifacts*. Tagged releases refuse to build without the signing
+secrets, so every release can update the previous one.
+
+### Install on a phone
+
+Open the release page on the phone, download the `.apk`, tap it, and allow
+"install unknown apps" for your browser when Android asks. Updating is the
+same — it installs over the old version and keeps playlists and My Files. If
+music stops after a while with the screen off (Xiaomi, Samsung, OnePlus are
+aggressive about this): Settings → Apps → VYBE → Battery → **Unrestricted**.
+
+The app opens `https://<you>.github.io/<repo>/` by default; set a repository
+variable `VYBE_APP_URL` only if you host the site elsewhere. The app id is
+`io.github.manikandaprabu99.vybe` (`capacitor.config.ts`,
+`android/app/build.gradle`) — change it before the first release if you want,
+never after.
+
+There's no iPhone app: installing outside the App Store needs a Mac and an
+Apple developer account. iPhone users add the website to their Home Screen.
+
+## Local development
+
+Needs Node.js 18+.
+
+```bash
+git clone https://github.com/Manikandaprabu99/vybe.git && cd vybe
 npm install
-cp .env.example .env.local
-# paste your YouTube API key into .env.local
-npm run dev
+cp .env.example .env.local   # fill in both keys
+npm run dev                  # http://localhost:3000
+npm run build                # static site in out/
 ```
 
-Open http://localhost:3000 — on your phone, use your computer's local IP instead of
-localhost while both are on the same Wi-Fi. Note that the "Install app" / "Add to
-Home Screen" option specifically will **not** appear this way, even once everything
-else works — see "Getting the install option to show up" below.
+For the browser key to work locally, add `http://localhost:3000/*` to its
+website restrictions. To build the APK on your own machine you need JDK 21 and
+the Android SDK (Android Studio installs both):
+`VYBE_APP_URL=https://manikandaprabu99.github.io/vybe/ npm run android:sync`,
+then `cd android && ./gradlew assembleDebug`.
 
-## Deploy for free
+## How far the free YouTube quota goes
 
-```bash
-npx vercel
-```
+The free quota is 10,000 units a day. A **search costs 100 units**; a chart, a
+channel's uploads or a batch of video details costs **1**. VYBE avoids
+searches wherever a 1-unit call does the job and reuses answers:
 
-Follow the prompts, then add `YOUTUBE_API_KEY` under Vercel → Project → Settings →
-Environment Variables, and redeploy. Once it's live, open the URL on your phone and
-tap "Add to Home Screen" (iOS Safari, Share icon) or "Install app" (Android Chrome) —
-that's what makes it behave like a real app icon instead of a browser tab.
+| What | Cost | Reused for |
+|---|---|---|
+| Home's charts + new Tamil songs (each build, every 4 h) | ~10 units | 1 hour (build cache) |
+| Home's evergreens + the four artist pages | 600 units | 1 day (build cache) |
+| A search someone types | 100 units | 1 day on that phone |
+| Autoplay after a song | 0–200 units | 1 day per movie/artist on that phone |
 
-## Getting the install option to show up
+That's roughly 650 units a day for the site itself, leaving room for about 90
+fresh searches or autoplays a day across everyone. Search results are cached
+per phone (not shared between friends) because there's no server.
 
-Two things both have to be true, and the first is the one that usually trips
-people up:
+## Autoplay (song radio)
 
-1. **The page has to be served over HTTPS** (or from `localhost` itself).
-   Opening `http://<your-computer's-LAN-IP>:3000` on a phone — the usual way
-   of testing "on your phone" during local development — does **not** count;
-   browsers won't offer to install a plain-HTTP page that isn't localhost.
-   The install option only actually shows up once the app is open from its
-   deployed `https://...` Vercel URL.
-2. **Properly-sized icons.** The manifest previously listed only an SVG icon,
-   which some browsers' installability checks are stricter about.
-   `public/icon-192.png` and `public/icon-512.png` (plain PNGs) have been
-   added, and `app/manifest.ts` / `app/layout.tsx` now point at those — the
-   more universally-supported setup.
+When the queue runs out, VYBE keeps playing similar songs instead of stopping.
+YouTube's API no longer offers "related videos", so similarity comes from the
+song itself (`getRelatedTracks` in `lib/youtube/core.ts`): other songs from the
+same movie (Tamil film-song titles name it — `| Jailer |`, `(From "Leo")`),
+then the same singer, then the newest songs from the same label. Other uploads
+of the same song (lyric video vs video song), dubbed versions and trailers are
+skipped. The next songs are fetched as soon as the last song starts, so they're
+already in Up Next. Like all YouTube songs, this plays while the app is open.
 
 ## Project structure
 
 ```
 app/
-  page.tsx                 Home — trending, artists, new releases, evergreens
-  artist/[name]/page.tsx   Songs for one artist (from a Home artist tile)
-  search/page.tsx          Search
-  library/page.tsx         My Files (background-playable) + playlists + Liked Songs
-  playlist/[id]/page.tsx   Playlist detail
-  liked/page.tsx           Liked Songs (heart icon on the now-playing screen)
-  api/search/route.ts      GET /api/search?q=...
-  api/latest/route.ts      GET /api/latest
-  manifest.ts              PWA manifest (installability)
-components/                 UI pieces (player, nav, cards, shelves, sheets)
+  page.tsx                 Home (built ahead of time with YouTube + radio data)
+  search/page.tsx          Search (runs in the browser)
+  radio/page.tsx           Live radio (station lists built ahead of time)
+  library/page.tsx         Liked Songs, playlists, My Files
+  liked/page.tsx           Liked Songs
+  playlist/page.tsx        A playlist (/playlist/?id=…)
+  artist/[slug]/page.tsx   Featured artists (built ahead of time)
+  layout.tsx               Fonts, metadata, player, nav
+components/
+  Player.tsx               Mini player, now-playing screen, queue + sleep sheets, YouTube embed
+  HomeFeed.tsx             Home's shelves and filter chips
+  TrackRow.tsx             A song in a list, with its "…" sheet
+  CollectionHeader.tsx     The top of Liked / playlist / artist pages
+  ui/Artwork.tsx           Images with generated-gradient fallbacks
+  ui/bits.tsx              Chips, equalizer bars, LIVE badge, empty states
+  ...                      Cards, nav, sheets, toasts
 lib/
-  types.ts                  Track / Playlist types (source: 'youtube' | 'local')
-  store.ts                  Zustand store — playlists, liked songs, local-file
-                             metadata, shuffle/repeat
-  youtube.ts                YouTube Data API wrapper + FEATURED_ARTISTS + PINNED_CHANNELS
-  format.ts                 Title/artist cleanup, seek-bar time formatting
-  localAudioDb.ts            IndexedDB storage for imported audio file bytes
+  audioEngine.ts           Background-capable playback for My Files and radio
+  store.ts                 Zustand store — library, queue, shuffle/repeat, recently played, sleep timer
+  youtube/core.ts          All YouTube logic (shelves, autoplay picks, label channels)
+  youtube/server.ts        …fetched at build time with the build key
+  youtube/client.ts        …fetched from the phone with the browser key (cached)
+  mediaControls.ts         Lock-screen controls: Media Session (web) or native plugin (app)
+  radio.ts                 Station lists from radio-browser.info
+  paths.ts                 The GitHub Pages sub-path (/vybe)
 public/
-  sw.js                      Offline app-shell caching
-  icon.svg, icon-192.png,    App icons (favicon, manifest, apple-touch-icon)
-  icon-512.png
+  sw.js                    Offline support (network-first pages, cached build files)
+  manifest.webmanifest     Install metadata (relative URLs, works under /vybe/)
+android/                   The Android app (Capacitor)
+.github/workflows/         deploy.yml (GitHub Pages) · android.yml (APK → Releases)
 ```
 
-## Home screen shelves
+## Changing the label channels and artists
 
-Home is now laid out like Spotify's home tab — horizontal shelves instead of a
-plain list:
+`TAMIL_LABEL_CHANNELS` and `FEATURED_ARTISTS` in `lib/youtube/core.ts`.
+Labels: Sony Music South, Think Music India, Saregama Tamil, T-Series Tamil,
+U1 Records, Tips Tamil (each id checked against the channel's own page). To
+find a channel's id: open the channel → "..." → "Share channel" → "Copy channel
+ID". Each label costs 1 unit per build; each artist one search a day.
 
-- **Trending now** — YouTube's actual "most popular" music chart for India, so
-  it naturally mixes whatever's really trending rather than a guess.
-- **Popular artists** — a small starter list in `FEATURED_ARTISTS` (edit
-  `lib/youtube.ts` to swap in your own); tapping an artist opens their songs.
-- **New movie songs / New releases** — Tamil and English, sorted by upload date.
-- **Evergreens / classics** — older, high-view-count uploads (10+ years back).
+## Design
 
-Home refreshes once an hour (`revalidate = 3600` in `app/page.tsx`) instead of
-on every visit. With six queries now running to build all these shelves,
-fetching on every single page load would burn through the 10,000-unit daily
-quota fast once more than a couple of people are using it — caching for an
-hour means that cost is paid at most once an hour, no matter how many friends
-open the app in that window. If you still hit quota errors, raise that number
-(e.g. `10800` for three hours) or trim a shelf.
+A deep aubergine night with warm festival light — marigold into magenta —
+rather than Spotify's black-and-green: frosted glass bars, a floating mini
+player, artwork-tinted now-playing screen, generated gradient covers for
+anything without artwork, Plus Jakarta Sans throughout. Swipe the mini player
+sideways to skip or up to open; swipe the now-playing screen and sheets down
+to close. Respects "reduce motion".
 
-## Sample API response
+## Changelog
 
-`GET /api/search?q=Anirudh`
-```json
-{
-  "results": [
-    { "id": "abc123", "title": "Song Title", "artist": "Channel Name", "thumbnail": "https://..." }
-  ]
-}
-```
+**October 2026 — GitHub-only, modern redesign.** Moved off Vercel to a static
+site on GitHub Pages, data refreshed by GitHub Actions; Search and autoplay
+now run in the browser. New design across every screen (chips, recently-played
+grid, browse tiles, floating mini player with the live YouTube video in it,
+artwork-tinted now-playing, swipe gestures, sheets with drag handles, skeleton
+loading, empty states). Fixed: station logos that failed before the page
+loaded showed broken-image icons; the install manifest and icons now work
+under the /vybe/ sub-path.
 
-## Tightening up "official" results
+**October 2026 — the Spotify basics.** Up Next queue, smarter autoplay,
+Recently played, sleep timer, much lighter use of the YouTube quota (and a fix
+for the evergreen shelves defeating their own cache).
 
-Search and new-releases are currently filtered to YouTube's Music category and sorted
-by relevance or upload date — there's no hardcoded channel list, since verifying exact
-channel IDs needs live access to YouTube, which this build didn't have. If you want to
-lock results to specific labels you trust (Think Music, Sony Music South, T-Series,
-etc.), add their channel IDs to `PINNED_CHANNELS` in `lib/youtube.ts` — open the
-channel → "..." menu → "Share channel" → "Copy channel ID" — and filter results by
-`channelId` in the two API routes.
+**October 2026 — background playback that holds up.** Playback for My Files
+moved into `lib/audioEngine.ts` (next song started inside the "ended" event,
+so queues keep going with the screen locked); the play button follows pauses
+from calls/headphones/the lock screen; switching from a file to a YouTube song
+stops the file; unplayable YouTube videos are skipped; sessions survive the
+app being closed; live radio; the Android app; the build fixed.
 
-## Design direction
-
-Instead of Spotify's black-and-green, VYBE uses a warm dusk/festival palette (deep
-aubergine background, marigold + magenta accents) with a serif wordmark over a clean
-sans UI — its own identity, built around the same bottom-nav-plus-mini-player pattern
-people already know how to use.
-
-## Fixed / added after the second round of testing
-
-- **Messy YouTube titles** — `lib/format.ts` now strips common upload noise
-  ("(Official Video)", "HD", "- Topic", "VEVO" suffixes, etc.) from every
-  title and channel name before it reaches the UI, applied once in
-  `lib/youtube.ts` so every screen gets clean data automatically. It's
-  regex-based, so it won't catch every possible upload format, but it
-  handles the common ones.
-- **No favorite/heart icon** — tap the heart on the now-playing screen to
-  save a song. Saved songs live in a "Liked Songs" card at the top of your
-  Library (`app/liked/page.tsx`), the same way Spotify's Liked Songs works.
-- **Now-playing screen didn't look like Spotify's** — it was missing the
-  thing that most makes a now-playing screen feel like one: a progress bar
-  with elapsed/remaining time you can drag to seek. Added, along with
-  shuffle and repeat (off/all/one) controls — the store already had the
-  logic for these from an earlier pass, they just weren't wired to any
-  buttons yet.
-- **PWA install option not appearing** — see "Getting the install option to
-  show up" above; most likely cause is testing over plain HTTP via a LAN IP,
-  which the fixed icon setup alone doesn't solve.
-- **Background playback** — explained honestly rather than "fixed" at the
-  time; see the next section for what actually changed since.
-
-## Added after you asked for background playback
-
-Going native wouldn't have fixed this — YouTube's API terms restrict
-background/audio-only use of their content the same way for native apps
-built on their own SDKs as for a web embed, so a rewrite would have hit the
-identical wall with a lot more overhead (Xcode, an Apple Developer account,
-app review, no ability to even build/test an iOS app from this environment).
-
-What actually gets background play: not going through YouTube at all for
-those tracks. **Library → My Files** now lets you add audio files from your
-own phone (`app/library/page.tsx` handles picking and importing them,
-`lib/localAudioDb.ts` stores the bytes in IndexedDB, `components/Player.tsx`
-plays them through a real `<audio>` element instead of the YouTube embed).
-Add something you own, and it plays in the background and on the lock screen
-like any other music app — because at that point it genuinely is just audio
-playback, with none of YouTube's restrictions attached. See "About
-background / lock-screen playback" above for the full picture, including why
-this only covers files you've added rather than the whole catalog.
-
-## Fixed after the first run
-
-- **`/icon` and `/apple-icon` returning 500 on Windows** — those used Next's
-  `ImageResponse` (`next/og`) to draw an icon on the fly, which has a
-  Windows-specific bug resolving its own bundled font. Replaced with the
-  plain `public/icon.svg` referenced directly in `app/layout.tsx`'s metadata
-  and `app/manifest.ts` — no dynamic image generation involved anymore.
-- **Slow/unreliable track switching** — `components/Player.tsx` had two
-  separate pieces of code both trying to start/stop the video on every track
-  change (its own effect, and the player library's own reaction to the
-  `videoId` prop changing), which could race each other. Now only one is in
-  charge per situation. A song still takes a moment to buffer when it first
-  starts — that's YouTube fetching the stream, not something a code fix
-  removes entirely.
+**September 2026.** Title clean-up, Liked Songs, now-playing seek bar,
+shuffle/repeat, PWA install fixes, My Files, faster track switching.
 
 ## Good to know
 
-- Playlists, liked songs and local-file metadata live on each phone's own
-  storage. With no login there's no account to sync through, so a friend who
-  installs VYBE builds their own separate library.
-- My Files storage isn't unlimited — it's whatever IndexedDB quota the
-  browser grants the site (commonly hundreds of MB to a few GB, varies by
-  device). If an import fails, that's almost always why. `saveLocalFile` in
-  `lib/localAudioDb.ts` is the place to add a clearer size warning if you
-  want one.
-- If a track doesn't autoplay the first time on iPhone, tap play once — that's iOS's
-  autoplay policy, not a bug.
-- Worth testing first after you deploy: switching tracks quickly, and changing tabs
-  mid-playback. `components/Player.tsx` is the file to check if playback ever feels off.
-
-## Suggested tests, when you're ready for them
-
-- `store.ts`: adding/removing a track from a playlist doesn't duplicate entries or
-  crash on an empty playlist; deleting a playlist mid-playback doesn't break the queue.
-- `api/search`: returns 400 with no `q`, 500 with a clear message when
-  `YOUTUBE_API_KEY` is missing or invalid.
-- Edge case: a track with no thumbnail falls back to a placeholder block instead of a
-  broken image.
+- Playlists, liked songs and My Files live on each phone. With no login there's
+  no account to sync through, so each friend builds their own library.
+- My Files storage is whatever the browser/app grants (commonly hundreds of MB
+  to a few GB); Library shows how much is used.
+- If a track doesn't start the first time on iPhone, tap play once — that's
+  iOS's autoplay policy.

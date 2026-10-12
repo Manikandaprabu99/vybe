@@ -96,6 +96,89 @@ export function extractArtistFromTitle(title: string): string | null {
   return null;
 }
 
+// Tamil film-song uploads usually name the movie in the title, in a handful
+// of well-worn label formats:
+//   'Naa Ready (From "Leo")'                               -> Leo
+//   'Hukum - Lyric Video | Jailer | Rajinikanth | Anirudh'  -> Jailer
+//   '#Coolie - Chikitu Video | Rajinikanth | Anirudh'       -> Coolie
+// Autoplay uses it to keep playing songs from the same album first. Returns
+// null whenever it isn't clear — English titles ("Artist - Song") have no
+// album in them, and a wrong guess is worse than none.
+const GENERIC_SEGMENT =
+  /^(tamil|telugu|hindi|malayalam|kannada|english|lyrics?|lyrical|lyric(al)? video|video( song)?|audio( song)?|official( video| audio)?|full (video )?song|4k|hd|\d{4}|new song|latest song|trending)$/i;
+
+function tidyAlbum(s: string): string | null {
+  const album = s
+    .replace(/#/g, '')
+    .replace(/\((tamil|telugu|hindi|malayalam|kannada)\)/gi, '')
+    .replace(/\s+(tamil\s+)?(movie|film)(\s+songs?)?$/i, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+  if (!album || GENERIC_SEGMENT.test(album) || album.split(/\s+/).length > 5) return null;
+  return album;
+}
+
+export function extractAlbum(rawTitle: string): string | null {
+  // Quoted names are taken whole, so 'From "Gunaa (Tamil)"' keeps its own
+  // brackets; unquoted ones run to the closing bracket.
+  const from =
+    rawTitle.match(/[([]\s*from\s+["“'‘]([^"”'’]+)["”'’]/i) ?? rawTitle.match(/[([]\s*from\s+([^)\]]+)[)\]]/i);
+  if (from) return tidyAlbum(from[1]);
+
+  const hashtag = rawTitle.match(/^\s*#([\p{L}\p{N}]+)/u);
+  if (hashtag) return tidyAlbum(hashtag[1]);
+
+  const parts = rawTitle
+    .split(/\s*\|\s*/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (parts.length >= 3) return tidyAlbum(parts[1]);
+  return null;
+}
+
+// Trailers, teasers, jukeboxes and the like that label channels upload
+// alongside the songs — never something to drop into a music queue.
+const NON_SONG_RE =
+  /\b(trailer|teaser|glimpse|promo|making( of)?|behind the scenes|bts|interview|press meet|audio launch|launch event|jukebox|non[\s-]?stop|full movie|movie scenes?|comedy|bgm|first look|motion poster|announcement|title (card|reveal)|reaction|shorts?)\b|#shorts/i;
+
+export function looksLikeNonSong(title: string): boolean {
+  return NON_SONG_RE.test(title);
+}
+
+// A rough identity for "the same song", so the lyric video, the video song
+// and the audio of one track aren't all queued one after another. For film
+// songs (those with an album) the song name is the part before " - "
+// ("Hukum - Thalaivar Alappara Lyric" and "Hukum - Video Song" are one
+// song); English titles put the artist there instead, so they keep it all.
+export function songKey(title: string, hasAlbum = false): string {
+  const head = cleanTitle(title).split(/\s*\|\s*/)[0];
+  const songPart = hasAlbum ? head.split(/\s+[-–—]\s+/)[0] : head;
+  return songPart
+    .toLowerCase()
+    .replace(/\(.*?\)|\[.*?\]/g, ' ')
+    .replace(/#[\p{L}\p{N}_]+/gu, ' ')
+    .replace(/\b(lyric(al)?s?|video|audio|song|official|full|4k|hd|from|tamil|telugu|hindi)\b/g, ' ')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim();
+}
+
+// Dubbed versions ("Hukum (Telugu)") of a Tamil song shouldn't follow it in
+// autoplay unless the song you started was itself that language.
+const OTHER_LANGUAGE_RE = /\b(telugu|hindi|malayalam|kannada)\b/i;
+
+export function isOtherLanguageVersion(title: string, seedTitle: string): boolean {
+  const lang = title.match(OTHER_LANGUAGE_RE)?.[1]?.toLowerCase();
+  return !!lang && !seedTitle.toLowerCase().includes(lang);
+}
+
+// ISO 8601 durations as the YouTube API returns them ("PT3M45S") -> seconds.
+export function parseIsoDuration(iso: string): number {
+  const m = iso.match(/^P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/);
+  if (!m) return 0;
+  const [, d, h, min, s] = m.map((v) => Number(v ?? 0));
+  return d * 86400 + h * 3600 + min * 60 + s;
+}
+
 export function formatTime(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) return '0:00';
   const mins = Math.floor(seconds / 60);

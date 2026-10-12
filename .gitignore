@@ -1,6 +1,12 @@
 node_modules
 .next
+# Static export (npm run build) — GitHub Actions builds and publishes it
+/out
 .env.local
 .vercel
 *.log
 .env
+# TypeScript incremental build info
+*.tsbuildinfo
+# Written by scripts/android-sync.mjs at build time
+android-shell/app-url.js

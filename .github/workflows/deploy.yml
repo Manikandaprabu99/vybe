@@ -1,0 +1,81 @@
+name: Deploy site
+
+# Builds VYBE as a static site and publishes it on GitHub Pages:
+#   https://<your-user>.github.io/<repo>/
+#
+# Runs on every push to main, and every 4 hours on a schedule so Home's
+# trending charts and new Tamil songs stay fresh. Each run costs ~10 units of
+# the 10,000-unit daily YouTube quota; the evergreen and artist searches are
+# reused for a day from the build cache below.
+#
+# One-time setup (Settings):
+#   Pages -> Build and deployment -> Source: GitHub Actions
+#   Secrets and variables -> Actions -> Secrets:
+#     YOUTUBE_API_KEY       key used at build time (kept secret)
+#     YOUTUBE_BROWSER_KEY   key the app uses for Search/autoplay; restrict it to
+#                           this site + the YouTube Data API (see README)
+# Note: GitHub pauses scheduled workflows in repos with no commits for 60
+# days — pushing anything (or re-enabling it in the Actions tab) resumes it.
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '17 */4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - id: pages
+        uses: actions/configure-pages@v5
+
+      # Next.js keeps every YouTube answer in .next/cache for as long as each
+      # call allows (an hour for charts, a day for searches). Carrying it
+      # between runs is what keeps scheduled builds cheap.
+      - uses: actions/cache@v4
+        with:
+          path: .next/cache
+          key: next-cache-${{ github.run_id }}
+          restore-keys: next-cache-
+
+      - name: Build
+        run: npm run build
+        env:
+          NEXT_PUBLIC_BASE_PATH: ${{ steps.pages.outputs.base_path }}
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          NEXT_PUBLIC_YOUTUBE_KEY: ${{ secrets.YOUTUBE_BROWSER_KEY }}
+          NEXT_TELEMETRY_DISABLED: 1
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: out
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

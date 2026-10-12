@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>VYBE</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        box-sizing: border-box;
+        background: #0e0913;
+        color: #f7ede4;
+        font-family: system-ui, sans-serif;
+        text-align: center;
+      }
+      h1 {
+        font-family: Georgia, serif;
+        font-size: 28px;
+        margin: 0 0 8px;
+      }
+      p {
+        color: #9c8aa5;
+        font-size: 14px;
+        line-height: 1.5;
+        margin: 0 0 24px;
+      }
+      button {
+        background: #f5a623;
+        color: #0e0913;
+        border: 0;
+        border-radius: 999px;
+        padding: 12px 28px;
+        font-size: 15px;
+        font-weight: 600;
+      }
+    </style>
+    <script src="app-url.js"></script>
+  </head>
+  <body>
+    <main>
+      <h1>VYBE</h1>
+      <p>Can&rsquo;t reach VYBE right now. Check your connection and try again.<br />Once it has loaded once, My Files also plays offline.</p>
+      <button type="button" onclick="window.location.replace(window.VYBE_APP_URL || '/')">Try again</button>
+    </main>
+  </body>
+</html>

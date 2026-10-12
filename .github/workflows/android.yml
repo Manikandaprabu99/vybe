@@ -49,7 +49,10 @@ jobs:
           distribution: temurin
           java-version: 21
 
-      - uses: android-actions/setup-android@v3
+      # No Android SDK setup step: GitHub's Ubuntu runners come with the SDK
+      # installed and its licences accepted (ANDROID_HOME), and Gradle fetches
+      # any missing platform itself. android-actions/setup-android only added a
+      # failure point — its sdkmanager call broke the first release build.
 
       - name: Point the app at the site and sync plugins
         run: npm run android:sync
